@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Filipe Navegador - Dinâmico</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f6f9;
+            display: flex; flex-direction: column;
+            height: 100vh; overflow: hidden;
+        }
+        /* Barra de Ferramentas */
+        .toolbar {
+            background-color: #ffffff; padding: 10px 16px;
+            display: flex; align-items: center; gap: 8px;
+            border-bottom: 1px solid #dcdcdc;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .btn {
+            background: #ffffff; border: 1px solid #cccccc;
+            padding: 6px 14px; cursor: pointer; border-radius: 4px;
+            font-size: 14px; font-weight: bold; color: #333333;
+        }
+        .btn:hover { background: #f0f0f0; border-color: #aaaaaa; }
+        .address-bar {
+            flex-grow: 1; padding: 6px 12px;
+            border: 1px solid #cccccc; border-radius: 4px; font-size: 14px;
+        }
+        /* Conteúdo Principal */
+        .main-content {
+            display: flex; flex-direction: column;
+            flex-grow: 1; height: calc(100vh - 55px);
+        }
+        .webview-container { flex: 1; width: 100%; background: #ffffff; border-bottom: 2px solid #0078d7; position: relative; }
+        iframe { width: 100%; height: 100%; border: none; display: none; }
+        
+        /* Resultados Dinâmicos da Pesquisa */
+        .search-results {
+            padding: 20px; background: #ffffff; height: 100%; overflow-y: auto; display: block;
+        }
+        .result-item { margin-bottom: 20px; border-bottom: 1px solid #f2f2f2; padding-bottom: 12px; }
+        .result-item a { color: #1a0dab; font-size: 18px; text-decoration: none; font-weight: 500; }
+        .result-item a:hover { text-decoration: underline; }
+        .result-url { color: #006621; font-size: 13px; display: block; margin: 2px 0; }
+        .result-snippet { color: #545454; font-size: 14px; margin: 4px 0 0 0; }
+
+        /* Painel de Rede Local */
+        .network-panel { height: 35%; background: #ffffff; padding: 15px; overflow-y: auto; border-top: 1px solid #dcdcdc; }
+        .panel-title { font-size: 16px; color: #0078d7; margin: 0 0 10px 0; border-bottom: 1px solid #eeeeee; padding-bottom: 6px; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e0e0e0; }
+        th { background-color: #f8f9fa; color: #555555; }
+        .status-online { color: #2e7d32; font-weight: bold; }
+        .myself { background-color: #fffde7; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <!-- Barra de Navegação -->
+    <div class="toolbar">
+        <button class="btn" onclick="goBack()">◀</button>
+        <button class="btn" onclick="goForward()">▶</button>
+        <button class="btn" onclick="refreshPage()">🔄</button>
+        <button class="btn" onclick="goHome()">🏠</button>
+        <!-- Deixamos a barra em branco para escrever o que quiser -->
+        <input type="text" id="urlInput" class="address-bar" placeholder="Digite um site (ex: cp.pt) ou pesquise algo aqui..." onkeydown="checkEnter(event)">
+        <button class="btn" onclick="navigateTo()">Buscar</button>
+    </div>
+
+    <div class="main-content">
+        <div class="webview-container">
+            <iframe id="webFrame"></iframe>
+            <div id="searchResults" class="search-results">
+                <h3>Escreva o que procura na barra acima para iniciar a navegação!</h3>
+            </div>
+        </div>
+
+        <div class="network-panel">
+            <h2 class="panel-title">🌐 Dispositivos Descarregados da Rede Local</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Endereço IP</th>
+                        <th>Estado</th>
+                        <th>Tipo de Dispositivo</th>
+                    </tr>
+                </thead>
+                <tbody id="networkTableBody">
+                    <tr class="myself">
+                        <td>127.0.0.1</td>
+                        <td class="status-online">Online</td>
+                        <td>O seu Computador (Localhost)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const frame = document.getElementById('webFrame');
+        const urlInput = document.getElementById('urlInput');
+        const resultsDiv = document.getElementById('searchResults');
+
+        function navigateTo() {
+            let input = urlInput.value.trim();
+            if (input === "") return;
+            
+            // 1. Se detetar um sufixo comum de site (como .pt, .com, .net), tenta abrir diretamente
+            if (/\.[a-z]{2,6}/i.test(input) && !/\s/.test(input)) {
+                if (!/^https?:\/\//i.test(input)) {
+                    input = 'https://' + input;
+                }
+                resultsDiv.style.display = 'none';
+                frame.style.display = 'block';
+                frame.src = input;
+                urlInput.value = input;
+            } else {
+                // 2. Se for texto normal, faz uma pesquisa real gerando links limpos usando o motor livre do DuckDuckGo/Google HTML
+                frame.style.display = 'none';
+                resultsDiv.style.display = 'block';
+                resultsDiv.innerHTML = "<p>A carregar resultados para: <b>" + input + "</b>...</p>";
+                
+                // Puxa os dados da API pública
+                fetch('https://duckduckgo.com' + encodeURIComponent(input) + '&format=json&no_html=1')
+                    .then(response => response.json())
+                    .then(data => {
+                        let html = `<h3>Resultados da Pesquisa Dinâmica para "${input}":</h3>`;
+                        
+                        // Adiciona o resultado principal se existir
+                        if (data.AbstractURL) {
+                            html += `
+                                <div class="result-item">
+                                    <a href="#" onclick="openLink('${data.AbstractURL}')">${data.Heading || input}</a>
+                                    <span class="result-url">${data.AbstractURL}</span>
+                                    <p class="result-snippet">${data.Abstract || 'Sem descrição adicional disponível.'}</p>
+                                </div>`;
+                        }
+                        
+                        // Lista os links relacionados encontrados
+                        if (data.RelatedTopics && data.RelatedTopics.length > 0) {
+                            let count = 0;
+                            data.RelatedTopics.forEach(topic => {
+                                if (topic.FirstURL && count < 5) {
+                                    html += `
+                                        <div class="result-item">
+                                            <a href="#" onclick="openLink('${topic.FirstURL}')">${topic.Text.split(' - ')[0] || 'Link Encontrado'}</a>
+                                            <span class="result-url">${topic.FirstURL}</span>
+                                            <p class="result-snippet">${topic.Text}</p>
+                                        </div>`;
+                                    count++;
+                                }
+                            });
+                        } else if (!data.AbstractURL) {
+                            html += `<p>Não foram encontrados links diretos. Tente digitar um endereço completo (ex: cp.pt).</p>`;
+                        }
+                        
+                        resultsDiv.innerHTML = html;
+                    })
+                    .catch(err => {
+                        resultsDiv.innerHTML = `<p>Erro ao ligar ao motor de busca. Experimente abrir o site diretamente digitando a extensão (ex: google.pt).</p>`;
+                    });
+            }
+        }
+
+        function openLink(url) {
+            resultsDiv.style.display = 'none';
+            frame.style.display = 'block';
+            urlInput.value = url;
+            frame.src = url;
+        }
+
+        function checkEnter(event) { if (event.key === 'Enter') navigateTo(); }
+        function refreshPage() { if(frame.style.display === 'block') frame.contentWindow.location.reload(); }
+        function goBack() { try { frame.contentWindow.history.back(); } catch(e) {} }
+        function goForward() { try { frame.contentWindow.history.forward(); } catch(e) {} }
+        function goHome() {
+            urlInput.value = "";
+            frame.style.display = 'none';
+            resultsDiv.style.display = 'block';
+            resultsDiv.innerHTML = "<h3>Escreva o que procura na barra acima para iniciar a navegação!</h3>";
+        }
+    </script>
+</body>
+</html>
